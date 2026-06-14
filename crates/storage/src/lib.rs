@@ -57,7 +57,9 @@ pub trait ProxyStore: Send + Sync {
     async fn record_heartbeat(&self, heartbeat: HeartbeatRecord) -> StoreResult<()>;
     async fn latest_heartbeat(&self, node_id: &str) -> StoreResult<HeartbeatRecord>;
     async fn create_profile(&self, profile: ProfileRecord) -> StoreResult<()>;
+    async fn list_profiles(&self) -> StoreResult<Vec<ProfileRecord>>;
     async fn add_credential(&self, profile_id: &str, credential: Credential) -> StoreResult<()>;
+    async fn list_credentials(&self) -> StoreResult<Vec<CredentialRecord>>;
     async fn record_artifact(&self, artifact: Artifact) -> StoreResult<()>;
     async fn record_artifact_blob(&self, artifact: Artifact, bytes: Vec<u8>) -> StoreResult<()>;
     async fn artifact_bytes(&self, artifact_id: &str) -> StoreResult<Vec<u8>>;
@@ -259,6 +261,12 @@ impl ProfileRecord {
             created_at: Utc::now(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CredentialRecord {
+    pub profile_id: String,
+    pub credential: Credential,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -718,6 +726,13 @@ impl MemoryStore {
         Ok(())
     }
 
+    pub async fn list_profiles(&self) -> StoreResult<Vec<ProfileRecord>> {
+        let state = self.state.lock().await;
+        let mut profiles = state.profiles.values().cloned().collect::<Vec<_>>();
+        profiles.sort_by(|left, right| left.profile_id.cmp(&right.profile_id));
+        Ok(profiles)
+    }
+
     pub async fn add_credential(
         &self,
         profile_id: &str,
@@ -741,6 +756,30 @@ impl MemoryStore {
             &credential.id,
         );
         Ok(())
+    }
+
+    pub async fn list_credentials(&self) -> StoreResult<Vec<CredentialRecord>> {
+        let state = self.state.lock().await;
+        let mut credentials = state
+            .credentials_by_profile
+            .iter()
+            .flat_map(|(profile_id, credentials)| {
+                credentials
+                    .iter()
+                    .cloned()
+                    .map(|credential| CredentialRecord {
+                        profile_id: profile_id.clone(),
+                        credential,
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+        credentials.sort_by(|left, right| {
+            left.profile_id
+                .cmp(&right.profile_id)
+                .then(left.credential.id.cmp(&right.credential.id))
+        });
+        Ok(credentials)
     }
 
     pub async fn record_artifact(&self, artifact: Artifact) -> StoreResult<()> {
@@ -1472,8 +1511,14 @@ impl ProxyStore for MemoryStore {
     async fn create_profile(&self, profile: ProfileRecord) -> StoreResult<()> {
         MemoryStore::create_profile(self, profile).await
     }
+    async fn list_profiles(&self) -> StoreResult<Vec<ProfileRecord>> {
+        MemoryStore::list_profiles(self).await
+    }
     async fn add_credential(&self, profile_id: &str, credential: Credential) -> StoreResult<()> {
         MemoryStore::add_credential(self, profile_id, credential).await
+    }
+    async fn list_credentials(&self) -> StoreResult<Vec<CredentialRecord>> {
+        MemoryStore::list_credentials(self).await
     }
     async fn record_artifact(&self, artifact: Artifact) -> StoreResult<()> {
         MemoryStore::record_artifact(self, artifact).await
@@ -1916,6 +1961,30 @@ impl PostgresStore {
         Ok(())
     }
 
+    pub async fn list_profiles(&self) -> StoreResult<Vec<ProfileRecord>> {
+        let rows = sqlx::query(
+            r#"SELECT DISTINCT ON (profile_id) tenant_id, profile_id, ir_json, created_at
+               FROM profile_versions
+               ORDER BY profile_id ASC, version DESC"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                let tenant_id: String = row.try_get("tenant_id")?;
+                let profile_id: String = row.try_get("profile_id")?;
+                let ir_json: serde_json::Value = row.try_get("ir_json")?;
+                let created_at: DateTime<Utc> = row.try_get("created_at")?;
+                Ok(ProfileRecord {
+                    tenant_id,
+                    profile_id,
+                    ir: serde_json::from_value(ir_json)?,
+                    created_at,
+                })
+            })
+            .collect()
+    }
+
     pub async fn add_credential(
         &self,
         profile_id: &str,
@@ -1992,6 +2061,40 @@ impl PostgresStore {
         )
         .await?;
         Ok(())
+    }
+
+    pub async fn list_credentials(&self) -> StoreResult<Vec<CredentialRecord>> {
+        let rows = sqlx::query(
+            r#"SELECT pc.profile_id, c.id, c.client_group_id, c.status, cl.display_name, s.ciphertext
+               FROM profile_credentials pc
+               JOIN credentials c ON c.id = pc.credential_id
+               JOIN clients cl ON cl.id = c.client_id
+               JOIN secrets s ON s.id = c.secret_ref
+               ORDER BY pc.profile_id ASC, c.created_at ASC"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let mut credentials = Vec::with_capacity(rows.len());
+        for row in rows {
+            let profile_id: String = row.try_get("profile_id")?;
+            let id: String = row.try_get("id")?;
+            let client_group_id: String = row.try_get("client_group_id")?;
+            let status_raw: String = row.try_get("status")?;
+            let display_name: String = row.try_get("display_name")?;
+            let ciphertext: Vec<u8> = row.try_get("ciphertext")?;
+            let material: CredentialMaterial = serde_json::from_slice(&ciphertext)?;
+            credentials.push(CredentialRecord {
+                profile_id,
+                credential: Credential {
+                    id,
+                    client_group_id,
+                    display_name,
+                    status: parse_credential_status(&status_raw),
+                    material,
+                },
+            });
+        }
+        Ok(credentials)
     }
 
     pub async fn record_artifact(&self, artifact: Artifact) -> StoreResult<()> {
@@ -3185,8 +3288,14 @@ impl ProxyStore for PostgresStore {
     async fn create_profile(&self, profile: ProfileRecord) -> StoreResult<()> {
         PostgresStore::create_profile(self, profile).await
     }
+    async fn list_profiles(&self) -> StoreResult<Vec<ProfileRecord>> {
+        PostgresStore::list_profiles(self).await
+    }
     async fn add_credential(&self, profile_id: &str, credential: Credential) -> StoreResult<()> {
         PostgresStore::add_credential(self, profile_id, credential).await
+    }
+    async fn list_credentials(&self) -> StoreResult<Vec<CredentialRecord>> {
+        PostgresStore::list_credentials(self).await
     }
     async fn record_artifact(&self, artifact: Artifact) -> StoreResult<()> {
         PostgresStore::record_artifact(self, artifact).await

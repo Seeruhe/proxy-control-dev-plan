@@ -72,6 +72,13 @@ async fn memory_store_records_p0_flow_and_builds_subscription_view() {
 
     assert_eq!(store.audit_count().await.unwrap(), 6);
     assert_eq!(store.outbox_count().await.unwrap(), 6);
+    let profiles = store.list_profiles().await.unwrap();
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0].profile_id, "profile-a");
+    let credentials = store.list_credentials().await.unwrap();
+    assert_eq!(credentials.len(), 2);
+    assert_eq!(credentials[0].profile_id, "profile-a");
+    assert_eq!(credentials[0].credential.id, "cred-a");
 
     let profile: DeployedProfile = store
         .deployed_profile_for_subscription("profile-a")

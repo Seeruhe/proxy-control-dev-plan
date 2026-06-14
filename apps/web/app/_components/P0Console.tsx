@@ -61,6 +61,31 @@ type RegistrationTokenResponse = {
   tokens: RegistrationTokenItem[];
 };
 
+type ProfileInventoryItem = {
+  profile_id: string;
+  protocol: string;
+  core: string;
+  inbound_count: number;
+  credential_count: number;
+  created_at: string;
+};
+
+type ProfileInventoryResponse = {
+  profiles: ProfileInventoryItem[];
+};
+
+type ClientInventoryItem = {
+  client_id: string;
+  profile_id: string;
+  display_name: string;
+  kind: string;
+  status: string;
+};
+
+type ClientInventoryResponse = {
+  clients: ClientInventoryItem[];
+};
+
 type TopologyData = {
   kicker: string;
   title: string;
@@ -140,6 +165,8 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
   const [store, setStore] = useState<ControlState>('unregistered');
   const [nodes, setNodes] = useState<NodeInventoryItem[]>([]);
   const [registrationTokens, setRegistrationTokens] = useState<RegistrationTokenItem[]>([]);
+  const [profiles, setProfiles] = useState<ProfileInventoryItem[]>([]);
+  const [clients, setClients] = useState<ClientInventoryItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [events, setEvents] = useState<ConsoleEvent[]>([]);
   const [subscription, setSubscription] = useState('');
@@ -201,6 +228,8 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
   useEffect(() => {
     void refreshNodes(false);
     void refreshRegistrationTokens(false);
+    void refreshProfiles(false);
+    void refreshClients(false);
   }, []);
 
   function push(label: string, status: ConsoleEvent['status'], detail: unknown) {
@@ -323,12 +352,23 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               body: { profile_id: profileId, server_name: serverName, port: Number(inboundPort || 443) },
             }
           : { path: '/profiles/vless-reality', body: { profile_id: profileId, server_name: serverName } };
-    return run(`Create ${protocolLabel(profileProtocol)} profile`, () =>
+    const result = await run(`Create ${protocolLabel(profileProtocol)} profile`, () =>
       api<JsonValue>(profileRequest.path, {
         method: 'POST',
         body: JSON.stringify(profileRequest.body),
       }),
     );
+    await refreshProfiles(false);
+    return result;
+  }
+
+  async function refreshProfiles(logActivity = true) {
+    const load = async () => {
+      const result = await api<ProfileInventoryResponse>('/profiles');
+      setProfiles(result.profiles);
+      return result;
+    };
+    return logActivity ? run('Refresh profile inventory', load) : load().catch(() => undefined);
   }
 
   async function createClient(event?: FormEvent) {
@@ -339,7 +379,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
         : profileProtocol === 'trojan'
           ? { kind: 'trojan', password: credentialPassword }
           : { kind: 'vless', uuid };
-    return run('Create client credential', () =>
+    const result = await run('Create client credential', () =>
       api<JsonValue>('/clients', {
         method: 'POST',
         body: JSON.stringify({
@@ -352,6 +392,18 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
         }),
       }),
     );
+    await refreshClients(false);
+    await refreshProfiles(false);
+    return result;
+  }
+
+  async function refreshClients(logActivity = true) {
+    const load = async () => {
+      const result = await api<ClientInventoryResponse>('/clients');
+      setClients(result.clients);
+      return result;
+    };
+    return logActivity ? run('Refresh client inventory', load) : load().catch(() => undefined);
   }
 
   async function compileDeployment(event?: FormEvent) {
@@ -764,17 +816,25 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
             {profileProtocol !== 'vless' ? <Field label="Inbound port" value={inboundPort} onChange={setInboundPort} /> : null}
           </FormPanel>
           <section className="data-panel span-2">
-            <PanelHeader eyebrow="Compiler target" title="Xray adapter coverage" />
+            <PanelHeader
+              eyebrow="Compiler target"
+              title="Xray adapter coverage"
+              action={<button onClick={() => refreshProfiles()} type="button">Refresh profiles</button>}
+            />
             <ResourceTable
               rows={[
                 ['Selected protocol', protocolLabel(profileProtocol), 'wired to backend endpoint'],
                 ['VLESS REALITY', '/profiles/vless-reality', 'browser operation'],
                 ['Shadowsocks', '/profiles/shadowsocks', 'browser operation'],
                 ['Trojan', '/profiles/trojan', 'browser operation'],
+                ['Profile inventory', '/profiles', profiles.length ? `${profiles.length} loaded` : 'empty'],
                 ['Core', 'xray-core', 'verified locally'],
                 ['Later adapter', 'sing-box', 'kept behind compiler boundary'],
               ]}
             />
+            <div className="offset-top">
+              <JsonBlock title="Profile inventory" value={profiles.length ? profiles : { status: 'no profiles loaded' }} />
+            </div>
           </section>
         </section>
       ) : null}
@@ -810,6 +870,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
                   <button onClick={recordUsage} type="button">Record sample</button>
                   <button onClick={fetchUsage} type="button">Read latest</button>
                   <button onClick={fetchClientGuards} type="button">Read guardrails</button>
+                  <button onClick={() => refreshClients()} type="button">Refresh clients</button>
                 </div>
               }
             />
@@ -817,6 +878,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               rows={[
                 ['Client ID', clientId, 'credential'],
                 ['Credential kind', protocolLabel(profileProtocol), 'wired to /clients kind'],
+                ['Client inventory', '/clients', clients.length ? `${clients.length} loaded` : 'empty'],
                 ['Quota bytes', quotaBytes, quotaDecision ? 'decision loaded' : 'not loaded'],
                 ['Expires at', expiresAt, expiryDecision ? 'decision loaded' : 'not loaded'],
               ]}
@@ -826,6 +888,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               <JsonBlock title="Quota decision" value={quotaDecision || { status: 'not loaded' }} />
               <JsonBlock title="Expiry decision" value={expiryDecision || { status: 'not loaded' }} />
               <JsonBlock title="Usage rollups" value={Object.keys(usageRollups).length ? usageRollups : { status: 'not loaded' }} />
+              <JsonBlock title="Client inventory" value={clients.length ? clients : { status: 'no clients loaded' }} />
             </div>
           </section>
         </section>

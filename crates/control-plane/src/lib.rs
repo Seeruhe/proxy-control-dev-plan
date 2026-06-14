@@ -168,13 +168,14 @@ pub fn build_router(state: AppState) -> Router {
             get(get_latest_usage_rollup),
         )
         .route("/artifacts/{artifact_id}/bytes", get(get_artifact_bytes))
+        .route("/profiles", get(list_profiles))
         .route(
             "/profiles/vless-reality",
             post(create_vless_reality_profile),
         )
         .route("/profiles/shadowsocks", post(create_shadowsocks_profile))
         .route("/profiles/trojan", post(create_trojan_profile))
-        .route("/clients", post(create_client))
+        .route("/clients", get(list_clients).post(create_client))
         .route("/clients/{client_id}/quota", get(get_client_quota))
         .route("/clients/{client_id}/expiry", get(get_client_expiry))
         .route("/deployments/compile", post(compile_deployment))
@@ -624,6 +625,48 @@ struct CreateProfileResponse {
     status: String,
 }
 
+#[derive(Debug, Serialize)]
+struct ProfileInventoryResponse {
+    profiles: Vec<ProfileInventoryItem>,
+}
+
+#[derive(Debug, Serialize)]
+struct ProfileInventoryItem {
+    profile_id: String,
+    protocol: String,
+    core: String,
+    inbound_count: usize,
+    credential_count: usize,
+    created_at: chrono::DateTime<Utc>,
+}
+
+async fn list_profiles(State(state): State<AppState>) -> impl IntoResponse {
+    let profiles = match state.store.list_profiles().await {
+        Ok(profiles) => profiles,
+        Err(error) => return to_http_error(error).into_response(),
+    };
+    let mut items = Vec::with_capacity(profiles.len());
+    for profile in profiles {
+        let credential_count = match state
+            .store
+            .credentials_for_profile(&profile.profile_id)
+            .await
+        {
+            Ok(credentials) => credentials.len(),
+            Err(error) => return to_http_error(error).into_response(),
+        };
+        items.push(ProfileInventoryItem {
+            protocol: profile_protocol_label(&profile.ir),
+            core: profile.ir.runtime.core.clone(),
+            inbound_count: profile.ir.inbounds.len(),
+            credential_count,
+            profile_id: profile.profile_id,
+            created_at: profile.created_at,
+        });
+    }
+    Json(ProfileInventoryResponse { profiles: items }).into_response()
+}
+
 async fn create_vless_reality_profile(
     State(state): State<AppState>,
     Json(req): Json<CreateProfileRequest>,
@@ -764,6 +807,39 @@ struct CreateClientRequest {
 struct CreateClientResponse {
     client_id: String,
     status: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ClientInventoryResponse {
+    clients: Vec<ClientInventoryItem>,
+}
+
+#[derive(Debug, Serialize)]
+struct ClientInventoryItem {
+    client_id: String,
+    profile_id: String,
+    display_name: String,
+    kind: String,
+    status: String,
+}
+
+async fn list_clients(State(state): State<AppState>) -> impl IntoResponse {
+    match state.store.list_credentials().await {
+        Ok(credentials) => {
+            let clients = credentials
+                .into_iter()
+                .map(|record| ClientInventoryItem {
+                    client_id: record.credential.id,
+                    profile_id: record.profile_id,
+                    display_name: record.credential.display_name,
+                    kind: credential_kind_label(&record.credential.material),
+                    status: credential_status_label(&record.credential.status),
+                })
+                .collect();
+            Json(ClientInventoryResponse { clients }).into_response()
+        }
+        Err(error) => to_http_error(error).into_response(),
+    }
 }
 
 async fn create_client(
@@ -1494,6 +1570,39 @@ fn parse_runner_result_public_key_hex(public_key_hex: &str) -> Result<VerifyingK
         .try_into()
         .map_err(|_| "invalid runner result public key length".to_owned())?;
     VerifyingKey::from_bytes(&bytes).map_err(|_| "invalid runner result public key".to_owned())
+}
+
+fn profile_protocol_label(ir: &ProfileIr) -> String {
+    ir.inbounds
+        .first()
+        .map(|inbound| match &inbound.protocol {
+            InboundProtocol::Vless => match &inbound.security {
+                Security::Reality { .. } => "vless-reality",
+                Security::Tls { .. } => "vless-tls",
+                Security::None => "vless",
+            },
+            InboundProtocol::Shadowsocks => "shadowsocks",
+            InboundProtocol::Trojan => "trojan",
+        })
+        .unwrap_or("unknown")
+        .into()
+}
+
+fn credential_kind_label(material: &CredentialMaterial) -> String {
+    match material {
+        CredentialMaterial::VlessUuid { .. } => "vless".into(),
+        CredentialMaterial::ShadowsocksPassword { .. } => "shadowsocks".into(),
+        CredentialMaterial::TrojanPassword { .. } => "trojan".into(),
+    }
+}
+
+fn credential_status_label(status: &domain::CredentialStatus) -> String {
+    match status {
+        domain::CredentialStatus::Active => "active",
+        domain::CredentialStatus::Revoked => "revoked",
+        domain::CredentialStatus::Expired => "expired",
+    }
+    .into()
 }
 
 fn to_http_error(error: storage::StoreError) -> (StatusCode, String) {

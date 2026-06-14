@@ -511,6 +511,82 @@ async fn p0_api_registers_node_compiles_profile_creates_audit_and_subscription()
 }
 
 #[tokio::test]
+async fn api_lists_profiles_and_clients_as_sanitized_inventory() {
+    let app = build_router(AppState::dev());
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/profiles/shadowsocks")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"profile_id":"profile-inventory","port":8388}).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/clients")
+                .header("content-type", "application/json")
+                .body(Body::from(json!({"client_id":"client-inventory","profile_id":"profile-inventory","display_name":"Inventory Alice","kind":"shadowsocks","method":"2022-blake3-aes-128-gcm","password":"MDEyMzQ1Njc4OWFiY2RlZg=="}).to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::CREATED);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/profiles")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let profiles: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(profiles["profiles"][0]["profile_id"], "profile-inventory");
+    assert_eq!(profiles["profiles"][0]["protocol"], "shadowsocks");
+    assert_eq!(profiles["profiles"][0]["credential_count"], 1);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/clients")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let clients: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(clients["clients"][0]["client_id"], "client-inventory");
+    assert_eq!(clients["clients"][0]["profile_id"], "profile-inventory");
+    assert_eq!(clients["clients"][0]["kind"], "shadowsocks");
+    assert!(!body
+        .windows(b"password".len())
+        .any(|window| window == b"password"));
+    assert!(!body
+        .windows(b"MDEyMzQ1Njc4OWFiY2RlZg==".len())
+        .any(|window| window == b"MDEyMzQ1Njc4OWFiY2RlZg=="));
+}
+
+#[tokio::test]
 async fn app_state_selects_store_from_database_url_env() {
     std::env::remove_var("DATABASE_URL");
     let memory_state = AppState::from_env().await.unwrap();
