@@ -256,6 +256,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     void refreshProfiles(false);
     void refreshClients(false);
     void refreshDeployments(false);
+    void refreshArchitectureStatus(false);
   }, []);
 
   function push(label: string, status: ConsoleEvent['status'], detail: unknown) {
@@ -661,10 +662,13 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     setUsageRollups({ hour, day, month });
   }
 
-  async function fetchArchitectureStatus() {
-    const result = await run('Fetch architecture capabilities', () => api<JsonValue>('/system/capabilities'));
-    setArchitectureStatus(result);
-    return result;
+  async function refreshArchitectureStatus(logActivity = true) {
+    const load = async () => {
+      const result = await api<JsonValue>('/system/capabilities');
+      setArchitectureStatus(result);
+      return result;
+    };
+    return logActivity ? run('Fetch architecture capabilities', load) : load().catch(() => undefined);
   }
 
   async function bootstrap() {
@@ -709,6 +713,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
             <MetricCard label="Target core" value="Xray 26.3.27" detail="/root/xray-bin/xray" />
             <MetricCard label="Artifact" value={artifactShort} detail="content addressed deployment output" />
             <MetricCard label="Client" value={clientId} detail={`${profileId} / ${serverName}`} />
+            <MetricCard label="Backend wheels" value={capabilityValue(architectureStatus)} detail={capabilityDetail(architectureStatus)} />
           </section>
 
           <section className="dashboard-main">
@@ -1057,7 +1062,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
             <PanelHeader
               eyebrow="Runtime"
               title="Architecture status"
-              action={<button type="button" onClick={fetchArchitectureStatus}>Read capabilities</button>}
+              action={<button type="button" onClick={() => refreshArchitectureStatus()}>Read capabilities</button>}
             />
             <ResourceTable
               rows={[
@@ -1312,6 +1317,22 @@ function protocolLabel(protocol: ProxyProtocol) {
   if (protocol === 'shadowsocks') return 'Shadowsocks';
   if (protocol === 'trojan') return 'Trojan TLS';
   return 'VLESS REALITY';
+}
+
+function capabilityValue(value: JsonValue | null) {
+  const backend = arrayField(value, 'backend_wheels').length;
+  return backend ? `${backend} built` : 'Checking';
+}
+
+function capabilityDetail(value: JsonValue | null) {
+  const deferred = arrayField(value, 'deferred_wheels').length;
+  return deferred ? `${deferred} future wheels tracked` : 'auto-loaded from /system/capabilities';
+}
+
+function arrayField(value: JsonValue | null, key: string): unknown[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  const field = (value as Record<string, unknown>)[key];
+  return Array.isArray(field) ? field : [];
 }
 
 function inventoryStatus(count: number, itemName: string) {

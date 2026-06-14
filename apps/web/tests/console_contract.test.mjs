@@ -109,6 +109,9 @@ test('dashboard uses a Vercel-style workbench with a Claude-style operator artif
     'Architecture status',
     'Backend wheels',
     'Capability matrix',
+    'capabilityValue',
+    'capabilityDetail',
+    'refreshArchitectureStatus(false)',
     'Xray adapter coverage',
     'wired to backend endpoint',
     'Profile inventory',
@@ -165,6 +168,7 @@ test('layout and styles express a dense operational console', () => {
   assert(styles.includes('--accent: #7c3aed'), 'styles should expose the light-purple accent token');
   assert(styles.includes('.status-probe.checking'), 'styles should define the yellow connecting state');
   assert(styles.includes('.status-probe.error'), 'styles should define the red failed state');
+  assert(styles.includes('repeat(auto-fit, minmax(170px, 1fr))'), 'metric strip should adapt when backend wheel status is shown');
   assert(styles.includes('var(--font-geist-sans)'), 'styles should use Geist Sans');
   assert(styles.includes('var(--font-geist-mono)'), 'styles should use Geist Mono');
 });
