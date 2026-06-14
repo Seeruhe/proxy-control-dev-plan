@@ -171,6 +171,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
   const [nodeId, setNodeId] = useState(defaultNodeId);
   const [xrayVersion, setXrayVersion] = useState('26.3.27');
   const [registrationToken, setRegistrationToken] = useState('dev-registration-token');
+  const [runnerApiToken, setRunnerApiToken] = useState('dev-runner-token');
   const [runnerResultPublicKeyHex, setRunnerResultPublicKeyHex] = useState(defaultRunnerResultPublicKeyHex);
   const [profileId, setProfileId] = useState(defaultProfileId);
   const [profileProtocol, setProfileProtocol] = useState<ProxyProtocol>('vless');
@@ -216,7 +217,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     const lines = [
       'CONTROL_PLANE_BASE_URL=http://127.0.0.1:18080 \\',
       `RUNNER_NODE_ID=${nodeId} \\`,
-      'RUNNER_API_TOKEN=dev-runner-token \\',
+      `RUNNER_API_TOKEN=${runnerApiToken} \\`,
     ];
     if (!selectedNodeRegistered) {
       lines.push(`NODE_REGISTRATION_TOKEN=${registrationToken} \\`);
@@ -227,7 +228,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     lines.push('RUNNER_ONCE=1 \\');
     lines.push('./target/debug/runner');
     return lines.join('\n');
-  }, [nodeId, registrationToken, selectedNodeRegistered, xrayVersion]);
+  }, [nodeId, registrationToken, runnerApiToken, selectedNodeRegistered, xrayVersion]);
 
   useEffect(() => {
     let cancelled = false;
@@ -505,7 +506,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     const result = await run('Send runner heartbeat', () =>
       api<JsonValue>(`/runner/nodes/${nodeId}/heartbeat`, {
         method: 'POST',
-        headers: { 'x-runner-token': 'dev-runner-token' },
+        headers: { 'x-runner-token': runnerApiToken },
         body: JSON.stringify({
           capability_snapshot: {
             core: 'xray',
@@ -532,7 +533,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     const result = await run('Fetch next runner command', async () => {
       try {
         const command = await api<JsonValue | undefined>(`/runner/nodes/${nodeId}/commands/next?last_sequence=0`, {
-          headers: { 'x-runner-token': 'dev-runner-token' },
+          headers: { 'x-runner-token': runnerApiToken },
         });
         return command || { status: 'no queued command', next_step: 'Compile a deployment, then run the runner once command.' };
       } catch (error) {
@@ -557,7 +558,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     await run(`Record ${status} deployment health`, () =>
       api<JsonValue | undefined>(`/runner/nodes/${nodeId}/deployments/${deployment.deploymentId}/health`, {
         method: 'POST',
-        headers: { 'x-runner-token': 'dev-runner-token' },
+        headers: { 'x-runner-token': runnerApiToken },
         body: JSON.stringify({
           status,
           payload_json: {
@@ -610,7 +611,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     const result = await run('Record usage sample', () =>
       api<JsonValue>(`/runner/nodes/${nodeId}/usage`, {
         method: 'POST',
-        headers: { 'x-runner-token': 'dev-runner-token' },
+        headers: { 'x-runner-token': runnerApiToken },
         body: JSON.stringify({
           credential_id: clientId,
           uplink_bytes: 1234,
@@ -771,9 +772,11 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               action={<button disabled={!selectedNode || Boolean(busy)} onClick={rotateRunnerResultKey} type="button">Rotate key</button>}
             />
             <Field label="Runner result public key" value={runnerResultPublicKeyHex} onChange={setRunnerResultPublicKeyHex} wide />
+            <Field label="Runner API token" value={runnerApiToken} onChange={setRunnerApiToken} wide />
             <ResourceTable
               rows={[
                 ['Registered key', shortHex(selectedRunnerResultKey), selectedNode ? 'loaded from node identity' : 'default dev key'],
+                ['Runner API token', runnerApiToken ? 'configured in console' : 'missing', runnerApiToken ? 'sent as x-runner-token' : 'command polling will be unauthorized'],
                 ['Rotate endpoint', `/nodes/${nodeId}/runner-result-key/rotate`, selectedNode ? 'ready' : 'register node first'],
               ]}
             />
@@ -815,6 +818,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
                 ['Host', selectedNode?.host || `${nodeId}.example`, selectedNode ? 'loaded from backend' : 'derived preview'],
                 ['Core', selectedNode?.xray_version || `xray ${xrayVersion}`, 'P0 runner target'],
                 ['Result key', shortHex(selectedRunnerResultKey), 'runner result signature verification'],
+                ['Runner token', runnerApiToken ? 'configured' : 'missing', runnerApiToken ? 'matches dev default unless changed' : 'set RUNNER_API_TOKEN first'],
                 ['Command source', `/runner/nodes/${nodeId}/commands/next`, runnerCommandStatus(runnerCommandEnvelope, selectedNodeRegistered)],
                 ['Registration token', registrationToken, tokenStatus(registrationTokens, registrationToken)],
               ]}
