@@ -28,7 +28,7 @@ This repository implements the first executable slice from `proxy-control-dev-pl
 - Compiled config artifacts are persisted as bytes and can be retrieved with `GET /artifacts/{artifact_id}/bytes`.
 - Raw usage sample storage via `usage_records`, hourly/daily/monthly aggregation into `usage_rollups`, optional `quota_bytes` and `expires_at` on `POST /clients`, quota/expiry decisions via `GET /clients/{client_id}/quota` and `GET /clients/{client_id}/expiry`, and subscription suppression for quota-exceeded or expired credentials.
 - Usage endpoints: `POST /runner/nodes/{node_id}/usage`, `GET /usage/nodes/{node_id}/latest`, and `GET /usage/credentials/{credential_id}/rollups/latest?bucket=hour|day|month`.
-- Next.js App Router console pages for `/dashboard`, `/nodes`, `/clients`, `/profiles`, `/deployments`, `/tasks`, `/logs`, and `/settings`; the console now contains concrete P0 runbook cards and control-plane command blocks instead of backend-only placeholders.
+- Next.js App Router console pages for `/dashboard`, `/nodes`, `/clients`, `/profiles`, `/deployments`, `/tasks`, `/logs`, and `/settings`; the console now uses a Vercel/Geist-style operational workbench with a React Flow topology canvas, Claude-style operator/artifact panels, and live browser actions for node registration, profile/client creation, deployment compile, evidence inspection, usage samples, and subscription retrieval.
 - P0-shaped Postgres migration file plus a Docker-backed Postgres smoke test.
 - One-command E2E smoke (`./scripts/e2e_smoke.sh`) starts disposable Postgres, runs the control-plane, lets the runner self-register and heartbeat, applies a VLESS REALITY deployment through the runner with Docker-backed real Xray validation, and verifies reload/restart hook, process health hook, deployment health, active config, and subscription output.
 
@@ -137,7 +137,7 @@ curl -sS http://127.0.0.1:8080/subscriptions/profile-a
 
 ## Local machine note
 
-The current implementation avoids GPU/model requirements and heavy Docker stacks. The Rust P0 core is the deployment path; the Next.js console is a verified local operator runbook UI.
+The current implementation avoids GPU/model requirements and heavy Docker stacks. The Rust P0 core is the deployment path; the Next.js console is a verified local P0 control console, not a static runbook.
 
 
 ## Runner outbound polling

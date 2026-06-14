@@ -11,6 +11,8 @@
   },
   "dependencies": {
     "@tanstack/react-query": "latest",
+    "@xyflow/react": "^12.11.0",
+    "geist": "^1.7.2",
     "next": "latest",
     "react": "latest",
     "react-dom": "latest"

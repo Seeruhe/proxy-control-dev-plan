@@ -1,50 +1,116 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 
 const appDir = new URL('../app/', import.meta.url);
 const read = (path) => readFileSync(new URL(path, appDir), 'utf8');
 
-test('P0 console pages are operational instead of placeholders', () => {
+test('route pages render the interactive P0 console instead of runbook cards', () => {
   const pages = ['dashboard', 'nodes', 'clients', 'profiles', 'deployments', 'tasks', 'logs', 'settings'];
   for (const page of pages) {
     const source = read(`${page}/page.tsx`);
-    assert(!source.includes('placeholder'), `${page} still contains placeholder copy`);
-    assert(!source.includes('The verified backend API is available'), `${page} still defers to backend-only flow`);
+    assert(source.includes('P0Console'), `${page} does not render P0Console`);
+    assert(!source.includes('CommandBlock'), `${page} still renders command-only runbook blocks`);
+    assert(!source.includes('ConsoleCard'), `${page} still renders static cards`);
+    assert(!source.includes('curl -sS'), `${page} still contains curl instructions`);
   }
 });
 
-test('dashboard surfaces the core P0 runbook and status cards', () => {
-  const source = read('dashboard/page.tsx');
-  for (const text of ['Control-plane', 'Runner', 'Deploy', 'Observe', 'Subscribe', 'Rollback']) {
-    assert(source.includes(text), `dashboard missing ${text}`);
+test('P0 console contains real browser operations for the control-plane flow', () => {
+  const source = read('_components/P0Console.tsx');
+  for (const snippet of [
+    '/nodes/register',
+    '/profiles/vless-reality',
+    '/clients',
+    '/deployments/compile',
+    '/deployments/${deployment.deploymentId}/health',
+    '/artifacts/${deployment.artifactId}/bytes',
+    '/subscriptions/${profileId}',
+    '/runner/nodes/${nodeId}/usage',
+    '/runner/nodes/${nodeId}/heartbeat',
+    '/nodes/${nodeId}/heartbeat',
+    '/runner/nodes/${nodeId}/commands/next',
+    '/runner/nodes/${nodeId}/deployments/${deployment.deploymentId}/health',
+    '/deployments/${deployment.deploymentId}/advance',
+    '/deployments/${deployment.deploymentId}/rollback',
+    '/runner/results/count',
+    '/clients/${clientId}/quota',
+    '/clients/${clientId}/expiry',
+    '/usage/credentials/${clientId}/rollups/latest?bucket=hour',
+    'Run browser bootstrap',
+    'Refresh evidence',
+    'Fetch subscription',
+  ]) {
+    assert(source.includes(snippet), `P0Console missing ${snippet}`);
   }
 });
 
-test('operator pages include concrete control-plane API commands', () => {
-  const expectations = {
-    'nodes/page.tsx': ['/nodes/register', '/runner/nodes/{node_id}/heartbeat'],
-    'profiles/page.tsx': ['/profiles/vless-reality', '/profiles/shadowsocks', '/profiles/trojan'],
-    'clients/page.tsx': ['/clients', 'quota_bytes', 'expires_at', '/clients/{client_id}/quota', '/clients/{client_id}/expiry', 'bucket=hour', 'bucket=day', 'bucket=month'],
-    'deployments/page.tsx': ['/deployments/compile', 'idempotency-key', '/deployments/{deployment_id}/rollback', '/deployments/{deployment_id}/health', '/deployments/{deployment_id}/readiness', '/deployments/{deployment_id}/advance', '/runner/nodes/{node_id}/deployments/{deployment_id}/health'],
-    'settings/page.tsx': ['/nodes/{node_id}/runner-result-key/rotate', 'RUNNER_RESULT_SIGNING_KEY_HEX', '/subscriptions/{profile_id}/tokens/rotate'],
-  };
-  for (const [file, snippets] of Object.entries(expectations)) {
-    const source = read(file);
-    for (const snippet of snippets) {
-      assert(source.includes(snippet), `${file} missing ${snippet}`);
-    }
+test('dashboard uses a Vercel-style workbench with a Claude-style operator artifact rail', () => {
+  const source = read('_components/P0Console.tsx');
+  for (const snippet of [
+    '@xyflow/react',
+    'TopologyCanvas',
+    'TopologyNodeCard',
+    'nodesDraggable',
+    'onNodeDragStop',
+    'proxy-control-topology-positions',
+    'Next.js Web',
+    'Rust API',
+    'DeploymentPlan',
+    'operator-panel',
+    'artifact-panel',
+    'Run browser bootstrap',
+    'Runner queue and browser journal',
+    'Quota evidence',
+    'Heartbeat and command queue',
+    'xray-core',
+  ]) {
+    assert(source.includes(snippet), `P0Console missing workbench item ${snippet}`);
   }
 });
 
-test('shared console components are used by pages', () => {
-  const componentFiles = readdirSync(new URL('_components/', appDir));
-  assert(componentFiles.includes('ConsoleCard.tsx'));
-  assert(componentFiles.includes('CommandBlock.tsx'));
-  const pagesSource = ['dashboard', 'nodes', 'clients', 'profiles', 'deployments']
-    .map((page) => read(`${page}/page.tsx`))
-    .join('\n');
-  assert(pagesSource.includes('ConsoleCard'));
-  assert(pagesSource.includes('CommandBlock'));
+test('Next route handler proxies same-origin browser calls to the Rust control-plane', () => {
+  const source = read('api/control-plane/[...path]/route.ts');
+  assert(source.includes('WEB_API_BASE_URL'));
+  assert(source.includes('DEFAULT_CONTROL_PLANE'));
+  assert(source.includes('idempotency-key'));
+  assert(source.includes('x-runner-token'));
+  assert(source.includes('export async function GET'));
+  assert(source.includes('export async function POST'));
+});
+
+test('layout and styles express a dense operational console', () => {
+  const layout = read('layout.tsx');
+  const styles = read('styles.css');
+  assert(layout.includes('app-sidebar'));
+  assert(layout.includes('GeistSans'));
+  assert(layout.includes('@xyflow/react/dist/style.css'));
+  assert(layout.includes('RelayX'));
+  assert(layout.includes('Agent 原生代理基础设施控制平面'));
+  for (const className of [
+    'workbench-shell',
+    'dashboard-workspace',
+    'dashboard-main',
+    'dashboard-left-stack',
+    'metric-strip',
+    'status-probe',
+    'topology-canvas',
+    'operator-panel',
+    'artifact-panel',
+    'detail-workspace',
+    'form-panel',
+    'activity-dock',
+    'artifact-preview',
+    'runbook-step',
+    'resource-table',
+    'offset-top',
+  ]) {
+    assert(styles.includes(className), `styles missing ${className}`);
+  }
+  assert(styles.includes('--page: #fbf8ff'), 'styles should use a restrained light-purple page surface');
+  assert(styles.includes('--accent: #7c3aed'), 'styles should expose the light-purple accent token');
+  assert(styles.includes('.status-probe.checking'), 'styles should define the yellow connecting state');
+  assert(styles.includes('.status-probe.error'), 'styles should define the red failed state');
+  assert(styles.includes('var(--font-geist-sans)'), 'styles should use Geist Sans');
+  assert(styles.includes('var(--font-geist-mono)'), 'styles should use Geist Mono');
 });
