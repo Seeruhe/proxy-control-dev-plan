@@ -42,6 +42,7 @@ type NodeInventoryItem = {
   node_id: string;
   host: string;
   xray_version: string;
+  runner_result_public_key_hex: string;
   last_heartbeat_at: string;
 };
 
@@ -76,6 +77,7 @@ const defaultNodeId = 'node-a';
 const defaultProfileId = 'profile-a';
 const defaultClientId = 'client-a';
 const defaultUuid = '2f4f6f8a-1111-4c4c-9999-111111111111';
+const defaultRunnerResultPublicKeyHex = '511c34a1a2cb521df16bb246b8de8e7997ce235c7e76b22a3d7503a24819dd8a';
 const nodeTypes = { proxyNode: TopologyNodeCard };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -121,6 +123,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
   const [nodeId, setNodeId] = useState(defaultNodeId);
   const [xrayVersion, setXrayVersion] = useState('26.3.27');
   const [registrationToken, setRegistrationToken] = useState('dev-registration-token');
+  const [runnerResultPublicKeyHex, setRunnerResultPublicKeyHex] = useState(defaultRunnerResultPublicKeyHex);
   const [profileId, setProfileId] = useState(defaultProfileId);
   const [profileProtocol, setProfileProtocol] = useState<ProxyProtocol>('vless');
   const [serverName, setServerName] = useState('example.com');
@@ -155,6 +158,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
   const artifactShort = deployment?.artifactSha ? deployment.artifactSha.slice(0, 12) : 'none';
   const selectedNode = nodes.find((node) => node.node_id === nodeId);
   const selectedNodeRegistered = Boolean(selectedNode);
+  const selectedRunnerResultKey = selectedNode?.runner_result_public_key_hex || runnerResultPublicKeyHex;
   const activeRegistrationToken = registrationTokens.find((token) => token.status === 'active');
   const controlStateLabel = stateLabel(store);
   const runnerCommand = useMemo(() => {
@@ -294,6 +298,17 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     );
     setRegistrationToken(result.token);
     await refreshRegistrationTokens(false);
+    return result;
+  }
+
+  async function rotateRunnerResultKey() {
+    const result = await run('Rotate runner result key', () =>
+      api<JsonValue>(`/nodes/${nodeId}/runner-result-key/rotate`, {
+        method: 'POST',
+        body: JSON.stringify({ runner_result_public_key_hex: runnerResultPublicKeyHex }),
+      }),
+    );
+    await refreshNodes(false);
     return result;
   }
 
@@ -657,6 +672,20 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
             <Field label="Registration token" value={registrationToken} onChange={setRegistrationToken} wide />
           </FormPanel>
           <section className="data-panel">
+            <PanelHeader
+              eyebrow="Runner trust"
+              title="Result signature key"
+              action={<button disabled={!selectedNode || Boolean(busy)} onClick={rotateRunnerResultKey} type="button">Rotate key</button>}
+            />
+            <Field label="Runner result public key" value={runnerResultPublicKeyHex} onChange={setRunnerResultPublicKeyHex} wide />
+            <ResourceTable
+              rows={[
+                ['Registered key', shortHex(selectedRunnerResultKey), selectedNode ? 'loaded from node identity' : 'default dev key'],
+                ['Rotate endpoint', `/nodes/${nodeId}/runner-result-key/rotate`, selectedNode ? 'ready' : 'register node first'],
+              ]}
+            />
+          </section>
+          <section className="data-panel">
             <PanelHeader eyebrow="Add path" title="How nodes join" />
             <ResourceTable
               rows={[
@@ -692,6 +721,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
                 ['Node ID', nodeId, selectedNode ? 'registered in control-plane' : 'not registered in control-plane'],
                 ['Host', selectedNode?.host || `${nodeId}.example`, selectedNode ? 'loaded from backend' : 'derived preview'],
                 ['Core', selectedNode?.xray_version || `xray ${xrayVersion}`, 'P0 runner target'],
+                ['Result key', shortHex(selectedRunnerResultKey), 'runner result signature verification'],
                 ['Command source', `/runner/nodes/${nodeId}/commands/next`, runnerCommandEnvelope ? 'loaded' : 'no pending command loaded'],
                 ['Registration token', registrationToken, tokenStatus(registrationTokens, registrationToken)],
               ]}
@@ -1161,6 +1191,11 @@ function protocolLabel(protocol: ProxyProtocol) {
   if (protocol === 'shadowsocks') return 'Shadowsocks';
   if (protocol === 'trojan') return 'Trojan TLS';
   return 'VLESS REALITY';
+}
+
+function shortHex(value: string) {
+  if (!value) return 'not set';
+  return value.length > 18 ? `${value.slice(0, 10)}...${value.slice(-8)}` : value;
 }
 
 function tokenStatus(tokens: RegistrationTokenItem[], tokenValue: string) {
