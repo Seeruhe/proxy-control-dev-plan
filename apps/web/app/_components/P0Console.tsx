@@ -834,6 +834,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
                 ['Result key', shortHex(selectedRunnerResultKey), 'runner result signature verification'],
                 ['Runner token', runnerApiToken ? 'configured' : 'missing', runnerApiToken ? 'matches dev default unless changed' : 'set RUNNER_API_TOKEN first'],
                 ['Command source', `/runner/nodes/${nodeId}/commands/next`, runnerCommandStatus(runnerCommandEnvelope, selectedNodeRegistered)],
+                ['Result sink', `/runner/nodes/${nodeId}/results`, 'runner binary submits signed apply results'],
                 ['Registration token', registrationToken, tokenStatus(registrationTokens, registrationToken)],
               ]}
             />
@@ -1011,6 +1012,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
             />
             <div className="artifact-split">
               <JsonBlock title="Next runner command" value={runnerCommandEnvelope || { status: 'No runner command loaded', next_step: 'Register a node and compile a deployment, then fetch the next command.' }} />
+              <JsonBlock title="Runner result sink" value={{ endpoint: `/runner/nodes/${nodeId}/results`, owner: 'runner binary', auth: 'x-runner-token plus signed deployment result', browser_action: 'read count only' }} />
               <JsonBlock title="Runner result count" value={runnerResultCount || { status: 'not loaded yet' }} />
             </div>
             <EventList events={events} />
