@@ -143,6 +143,36 @@ async fn memory_store_rotates_subscription_tokens_and_logs_access() {
 }
 
 #[tokio::test]
+async fn memory_store_lists_registered_nodes_in_stable_order() {
+    let store = MemoryStore::new("tenant-dev");
+    store
+        .register_node(NodeRecord::new(
+            "tenant-dev",
+            "node-b",
+            "node-b.example",
+            "26.3.27",
+        ))
+        .await
+        .unwrap();
+    store
+        .register_node(NodeRecord::new(
+            "tenant-dev",
+            "node-a",
+            "node-a.example",
+            "1.8.8",
+        ))
+        .await
+        .unwrap();
+
+    let nodes = store.list_nodes().await.unwrap();
+    assert_eq!(nodes.len(), 2);
+    assert_eq!(nodes[0].node_id, "node-a");
+    assert_eq!(nodes[0].host, "node-a.example");
+    assert_eq!(nodes[1].node_id, "node-b");
+    assert_eq!(nodes[1].xray_version, "26.3.27");
+}
+
+#[tokio::test]
 async fn postgres_store_can_be_constructed_without_connecting_for_repository_wiring() {
     let store =
         PostgresStore::connect_lazy("postgres://proxy:proxy@localhost:5432/proxy_control").unwrap();

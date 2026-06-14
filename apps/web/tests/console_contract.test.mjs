@@ -20,6 +20,7 @@ test('P0 console contains real browser operations for the control-plane flow', (
   const source = read('_components/P0Console.tsx');
   for (const snippet of [
     '/nodes/register',
+    '/nodes',
     '/profiles/vless-reality',
     '/clients',
     '/deployments/compile',
@@ -61,6 +62,8 @@ test('dashboard uses a Vercel-style workbench with a Claude-style operator artif
     'artifact-panel',
     'Create dev deployment',
     'Register runner node',
+    'Refresh nodes',
+    'Node inventory',
     'A node is a VPS-side runner identity',
     'Runner queue and browser journal',
     'Quota evidence',

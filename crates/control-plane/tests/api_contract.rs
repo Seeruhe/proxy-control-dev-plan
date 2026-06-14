@@ -16,6 +16,22 @@ use tower::ServiceExt;
 async fn node_registration_token_is_consumed_after_first_successful_registration() {
     let app = build_router(AppState::dev());
 
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/nodes")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(list["nodes"].as_array().unwrap().len(), 0);
+
     let first = app.clone().oneshot(Request::builder()
         .method("POST")
         .uri("/nodes/register")
@@ -23,6 +39,23 @@ async fn node_registration_token_is_consumed_after_first_successful_registration
         .body(Body::from(json!({"registration_token":"dev-registration-token","node_id":"node-first","xray_version":"1.8.8"}).to_string()))
         .unwrap()).await.unwrap();
     assert_eq!(first.status(), StatusCode::CREATED);
+
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/nodes")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(list["nodes"][0]["node_id"], "node-first");
+    assert_eq!(list["nodes"][0]["xray_version"], "1.8.8");
 
     let second = app.clone().oneshot(Request::builder()
         .method("POST")

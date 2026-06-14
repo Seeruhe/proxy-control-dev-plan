@@ -38,6 +38,17 @@ type DeploymentState = {
   artifactPreview?: string;
 };
 
+type NodeInventoryItem = {
+  node_id: string;
+  host: string;
+  xray_version: string;
+  last_heartbeat_at: string;
+};
+
+type NodeInventoryResponse = {
+  nodes: NodeInventoryItem[];
+};
+
 type TopologyData = {
   kicker: string;
   title: string;
@@ -107,6 +118,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
   const [deployment, setDeployment] = useState<DeploymentState | null>(null);
   const [health, setHealth] = useState<string>('checking');
   const [store, setStore] = useState<ControlState>('empty');
+  const [nodes, setNodes] = useState<NodeInventoryItem[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
   const [events, setEvents] = useState<ConsoleEvent[]>([]);
   const [subscription, setSubscription] = useState('');
@@ -136,6 +148,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
 
   const deploymentStatus = deployment?.status || 'none';
   const artifactShort = deployment?.artifactSha ? deployment.artifactSha.slice(0, 12) : 'none';
+  const selectedNode = nodes.find((node) => node.node_id === nodeId);
   const controlStateLabel = stateLabel(store);
 
   useEffect(() => {
@@ -156,6 +169,10 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
       cancelled = true;
       window.clearInterval(timer);
     };
+  }, []);
+
+  useEffect(() => {
+    void refreshNodes(false);
   }, []);
 
   function push(label: string, status: ConsoleEvent['status'], detail: unknown) {
@@ -212,7 +229,22 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
       }),
     );
     setStore('ready');
+    await refreshNodes(false);
     return result;
+  }
+
+  async function refreshNodes(logActivity = true) {
+    const load = async () => {
+      const result = await api<NodeInventoryResponse>('/nodes');
+      setNodes(result.nodes);
+      if (result.nodes.some((node) => node.node_id === nodeId)) {
+        setStore((current) => (current === 'deployed' ? current : 'ready'));
+      } else {
+        setStore('empty');
+      }
+      return result;
+    };
+    return logActivity ? run('Refresh node inventory', load) : load().catch(() => undefined);
   }
 
   async function createProfile(event?: FormEvent) {
@@ -319,12 +351,14 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
         }),
       }),
     );
+    await refreshNodes(false);
     return result;
   }
 
   async function fetchHeartbeat() {
     const result = await run('Fetch runner heartbeat', () => api<JsonValue>(`/nodes/${nodeId}/heartbeat`));
     setLatestHeartbeat(result);
+    await refreshNodes(false);
     return result;
   }
 
@@ -556,6 +590,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               title="Node heartbeat and command queue"
               action={
                 <div className="button-row compact-row">
+                  <button onClick={() => refreshNodes()} type="button">Refresh nodes</button>
                   <button onClick={sendHeartbeat} type="button">Send heartbeat</button>
                   <button onClick={fetchHeartbeat} type="button">Read heartbeat</button>
                   <button onClick={fetchRunnerCommand} type="button">Fetch next command</button>
@@ -564,8 +599,9 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
             />
             <ResourceTable
               rows={[
-                ['Node ID', nodeId, store === 'empty' ? 'not registered in this browser session' : 'registered'],
-                ['Core', `xray ${xrayVersion}`, 'P0 runner target'],
+                ['Node ID', nodeId, selectedNode ? 'registered in control-plane' : 'not registered in control-plane'],
+                ['Host', selectedNode?.host || `${nodeId}.example`, selectedNode ? 'loaded from backend' : 'derived preview'],
+                ['Core', selectedNode?.xray_version || `xray ${xrayVersion}`, 'P0 runner target'],
                 ['Command source', `/runner/nodes/${nodeId}/commands/next`, runnerCommandEnvelope ? 'loaded' : 'no pending command loaded'],
                 ['Registration token', 'dev-registration-token', 'one-time token in dev mode'],
               ]}
@@ -574,6 +610,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               A node is a VPS-side runner identity. Registering it creates the control-plane record; the runner process then sends heartbeat, polls the next command, applies the xray-core config, and reports evidence.
             </p>
             <div className="artifact-split offset-top">
+              <JsonBlock title="Node inventory" value={nodes.length ? nodes : { status: 'no nodes registered' }} />
               <JsonBlock title="Latest heartbeat" value={latestHeartbeat || { status: 'not loaded yet' }} />
               <JsonBlock title="Next command envelope" value={runnerCommandEnvelope || { status: 'no pending command loaded' }} />
             </div>

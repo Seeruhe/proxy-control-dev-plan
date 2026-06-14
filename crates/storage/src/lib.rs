@@ -32,6 +32,7 @@ pub type StoreResult<T> = Result<T, StoreError>;
 #[async_trait]
 pub trait ProxyStore: Send + Sync {
     async fn register_node(&self, node: NodeRecord) -> StoreResult<()>;
+    async fn list_nodes(&self) -> StoreResult<Vec<NodeRecord>>;
     async fn record_heartbeat(&self, heartbeat: HeartbeatRecord) -> StoreResult<()>;
     async fn latest_heartbeat(&self, node_id: &str) -> StoreResult<HeartbeatRecord>;
     async fn create_profile(&self, profile: ProfileRecord) -> StoreResult<()>;
@@ -486,6 +487,13 @@ impl MemoryStore {
             &node.node_id,
         );
         Ok(())
+    }
+
+    pub async fn list_nodes(&self) -> StoreResult<Vec<NodeRecord>> {
+        let state = self.state.lock().await;
+        let mut nodes = state.nodes.values().cloned().collect::<Vec<_>>();
+        nodes.sort_by(|left, right| left.node_id.cmp(&right.node_id));
+        Ok(nodes)
     }
 
     pub async fn record_heartbeat(&self, heartbeat: HeartbeatRecord) -> StoreResult<()> {
@@ -1245,6 +1253,9 @@ impl MemoryStore {
 impl ProxyStore for MemoryStore {
     async fn register_node(&self, node: NodeRecord) -> StoreResult<()> {
         MemoryStore::register_node(self, node).await
+    }
+    async fn list_nodes(&self) -> StoreResult<Vec<NodeRecord>> {
+        MemoryStore::list_nodes(self).await
     }
     async fn record_heartbeat(&self, heartbeat: HeartbeatRecord) -> StoreResult<()> {
         MemoryStore::record_heartbeat(self, heartbeat).await
@@ -2376,6 +2387,53 @@ impl PostgresStore {
         })
     }
 
+    pub async fn list_nodes(&self) -> StoreResult<Vec<NodeRecord>> {
+        let rows = sqlx::query(
+            r#"SELECT n.tenant_id, n.id AS node_id, n.created_at,
+                      nc.xray_version, nc.capabilities_json,
+                      ni.public_key AS runner_result_public_key_hex
+               FROM nodes n
+               LEFT JOIN node_identities ni ON ni.node_id = n.id
+               LEFT JOIN LATERAL (
+                 SELECT xray_version, capabilities_json
+                 FROM node_capabilities
+                 WHERE node_id = n.id
+                 ORDER BY created_at DESC
+                 LIMIT 1
+               ) nc ON true
+               ORDER BY n.id"#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|row| {
+                let tenant_id: String = row.try_get("tenant_id")?;
+                let node_id: String = row.try_get("node_id")?;
+                let created_at: DateTime<Utc> = row.try_get("created_at")?;
+                let xray_version: Option<String> = row.try_get("xray_version")?;
+                let capabilities_json: Option<serde_json::Value> =
+                    row.try_get("capabilities_json")?;
+                let runner_result_public_key_hex: Option<String> =
+                    row.try_get("runner_result_public_key_hex")?;
+                let host = capabilities_json
+                    .as_ref()
+                    .and_then(|v| v.get("host"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| format!("{node_id}.example"));
+                Ok(NodeRecord {
+                    tenant_id,
+                    node_id,
+                    host,
+                    xray_version: xray_version.unwrap_or_else(|| "unknown".into()),
+                    runner_result_public_key_hex: runner_result_public_key_hex.unwrap_or_default(),
+                    last_heartbeat_at: created_at,
+                })
+            })
+            .collect()
+    }
+
     pub async fn update_node_runner_result_public_key(
         &self,
         node_id: &str,
@@ -2692,6 +2750,9 @@ impl PostgresStore {
 impl ProxyStore for PostgresStore {
     async fn register_node(&self, node: NodeRecord) -> StoreResult<()> {
         PostgresStore::register_node(self, node).await
+    }
+    async fn list_nodes(&self) -> StoreResult<Vec<NodeRecord>> {
+        PostgresStore::list_nodes(self).await
     }
     async fn record_heartbeat(&self, heartbeat: HeartbeatRecord) -> StoreResult<()> {
         PostgresStore::record_heartbeat(self, heartbeat).await

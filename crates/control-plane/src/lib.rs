@@ -140,6 +140,7 @@ const DEV_REALITY_PRIVATE_KEY: &str = "qKQ2RRX4uDMX5W-8JbyE8lcl3TVGeM5KAwkbTnEX1
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        .route("/nodes", get(list_nodes))
         .route("/nodes/register", post(register_node))
         .route(
             "/nodes/{node_id}/runner-result-key/rotate",
@@ -228,6 +229,11 @@ struct RegisterNodeResponse {
     status: String,
 }
 
+#[derive(Debug, Serialize)]
+struct ListNodesResponse {
+    nodes: Vec<NodeRecord>,
+}
+
 #[derive(Debug, Deserialize)]
 struct RotateRunnerResultKeyRequest {
     runner_result_public_key_hex: String,
@@ -282,6 +288,13 @@ async fn register_node(
             status: "registered".into(),
         }),
     ))
+}
+
+async fn list_nodes(State(state): State<AppState>) -> impl IntoResponse {
+    match state.store.list_nodes().await {
+        Ok(nodes) => Json(ListNodesResponse { nodes }).into_response(),
+        Err(error) => to_http_error(error).into_response(),
+    }
 }
 
 async fn rotate_runner_result_key(
