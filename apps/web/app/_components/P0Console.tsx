@@ -144,6 +144,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
   const [expiryDecision, setExpiryDecision] = useState<JsonValue | null>(null);
   const [usageRollups, setUsageRollups] = useState<Record<string, JsonValue>>({});
   const [rolloutAction, setRolloutAction] = useState<JsonValue | null>(null);
+  const [architectureStatus, setArchitectureStatus] = useState<JsonValue | null>(null);
 
   const deploymentStatus = deployment?.status || 'none';
   const artifactShort = deployment?.artifactSha ? deployment.artifactSha.slice(0, 12) : 'none';
@@ -522,6 +523,12 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
     setUsageRollups({ hour, day, month });
   }
 
+  async function fetchArchitectureStatus() {
+    const result = await run('Fetch architecture capabilities', () => api<JsonValue>('/system/capabilities'));
+    setArchitectureStatus(result);
+    return result;
+  }
+
   async function bootstrap() {
     await checkHealth();
     try {
@@ -849,14 +856,22 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
             <pre className="codeblock">{subscription || 'No subscription loaded'}</pre>
           </section>
           <section className="data-panel span-2">
-            <PanelHeader eyebrow="Runtime" title="Remote dev binding" />
+            <PanelHeader
+              eyebrow="Runtime"
+              title="Architecture status"
+              action={<button type="button" onClick={fetchArchitectureStatus}>Read capabilities</button>}
+            />
             <ResourceTable
               rows={[
                 ['Web', '0.0.0.0:3000', 'dev only'],
                 ['Control-plane', '0.0.0.0:18080', 'dev only'],
                 ['Xray', '/root/xray-bin/xray', 'local core'],
+                ['Backend wheels', '/system/capabilities', architectureStatus ? 'loaded' : 'not loaded'],
               ]}
             />
+            <div className="offset-top">
+              <JsonBlock title="Capability matrix" value={architectureStatus || { status: 'not loaded yet' }} />
+            </div>
           </section>
         </section>
       ) : null}

@@ -150,6 +150,7 @@ async fn ensure_default_registration_token(state: &AppState) -> Result<(), (Stat
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/healthz", get(|| async { "ok" }))
+        .route("/system/capabilities", get(system_capabilities))
         .route("/nodes", get(list_nodes))
         .route(
             "/nodes/registration-tokens",
@@ -227,6 +228,107 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/subscriptions/{profile_id}", get(get_subscription))
         .with_state(state)
+}
+
+#[derive(Debug, Serialize)]
+struct SystemCapabilitiesResponse {
+    product: &'static str,
+    architecture: &'static str,
+    p0_status: &'static str,
+    core_path: Vec<CapabilityItem>,
+    backend_wheels: Vec<CapabilityItem>,
+    deferred_wheels: Vec<CapabilityItem>,
+}
+
+#[derive(Debug, Serialize)]
+struct CapabilityItem {
+    name: &'static str,
+    status: &'static str,
+    evidence: &'static str,
+}
+
+async fn system_capabilities() -> Json<SystemCapabilitiesResponse> {
+    Json(SystemCapabilitiesResponse {
+        product: "RelayX",
+        architecture: "Agent-native proxy infrastructure control plane",
+        p0_status: "executable",
+        core_path: vec![
+            CapabilityItem {
+                name: "Next.js console -> Rust control-plane",
+                status: "implemented",
+                evidence: "same-origin /api/control-plane proxy, health check, browser operations",
+            },
+            CapabilityItem {
+                name: "Rust control-plane -> storage",
+                status: "implemented",
+                evidence: "ProxyStore trait with MemoryStore and PostgresStore implementations",
+            },
+            CapabilityItem {
+                name: "Rust runner -> xray-core",
+                status: "implemented",
+                evidence: "signed command polling, xray run -test, atomic active release switch",
+            },
+        ],
+        backend_wheels: vec![
+            CapabilityItem {
+                name: "Profile IR",
+                status: "implemented",
+                evidence: "VLESS REALITY, Shadowsocks, and Trojan profile constructors plus validation",
+            },
+            CapabilityItem {
+                name: "Xray compiler adapter",
+                status: "implemented",
+                evidence: "compiler-xray crate emits content-addressed xray JSON artifacts",
+            },
+            CapabilityItem {
+                name: "Runner lifecycle",
+                status: "implemented",
+                evidence: "self-registration, heartbeat, command polling, apply, signed result submission",
+            },
+            CapabilityItem {
+                name: "Node registration lease",
+                status: "p0-implemented",
+                evidence: "one-time registration tokens persisted in storage and atomically consumed",
+            },
+            CapabilityItem {
+                name: "Deployment evidence",
+                status: "implemented",
+                evidence: "health samples, readiness, rollback pointer, snapshot, result count",
+            },
+            CapabilityItem {
+                name: "Subscription and client guards",
+                status: "implemented",
+                evidence: "token issue/rotate/verify, quota, expiry, usage rollups",
+            },
+        ],
+        deferred_wheels: vec![
+            CapabilityItem {
+                name: "Full Lease Protocol",
+                status: "p1-deferred",
+                evidence: "needs explicit node lease artifact, graceful drain, credential rotation workflow",
+            },
+            CapabilityItem {
+                name: "sing-box compiler adapter",
+                status: "p1-deferred",
+                evidence: "compiler boundary exists; xray adapter is the P0 executable path",
+            },
+            CapabilityItem {
+                name: "A2A boundary",
+                status: "p1-deferred",
+                evidence: "internal flow uses direct HTTP/Rust; A2A should wrap external agent capabilities later",
+            },
+            CapabilityItem {
+                name: "BYOM integration",
+                status: "p1-deferred",
+                evidence: "no local model dependency in P0; future API-key-backed or customer connector mode",
+            },
+            CapabilityItem {
+                name: "Node marketplace agent",
+                status: "p2-deferred",
+                evidence: "requires private registry, auth, rate limits, and lease artifact contract first",
+            },
+        ],
+    })
 }
 
 #[derive(Debug, Deserialize)]

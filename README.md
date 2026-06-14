@@ -16,6 +16,7 @@ This repository implements the first executable slice from `proxy-control-dev-pl
 - Local runner apply flow: write temp config, run `xray run -test`, atomically switch `active`, optionally execute a reload/restart command and a process health command; invalid configs after a successful release return `RolledBack` and preserve the previous active release.
 - Subscription artifact generation that hides revoked, expired, or quota-exceeded credentials, plus stored subscription token issue/rotate/verify and access logging.
 - Minimal Axum control-plane API covering one-time-token node registration, authenticated runner heartbeat, VLESS/SS/Trojan profile and client creation, per-client quota/expiry decisions, subscription token issue/rotation, idempotent compile/deploy requests, runner command polling/result submission, deployment health sample reporting/query, multi-sample deployment readiness, rollout advance promotion/auto-rollback, raw usage sample reporting/query, hourly/daily/monthly usage rollups, audit/outbox counters, and subscription retrieval.
+- Machine-readable architecture and backend wheel status via `GET /system/capabilities`, including implemented P0 capabilities and deferred Lease/A2A/BYOM/marketplace boundaries.
 - Control-plane deployment evidence endpoints for rollback pointer and final deployment snapshot:
   `GET /deployments/{deployment_id}/rollback-pointer`, `GET /deployments/{deployment_id}/snapshot`,
   `GET /deployments/{deployment_id}/health`, and `GET /deployments/{deployment_id}/readiness`.

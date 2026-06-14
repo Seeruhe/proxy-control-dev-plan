@@ -39,9 +39,11 @@ test('P0 console contains real browser operations for the control-plane flow', (
     '/clients/${clientId}/quota',
     '/clients/${clientId}/expiry',
     '/usage/credentials/${clientId}/rollups/latest?bucket=hour',
+    '/system/capabilities',
     'Create dev deployment',
     'Refresh evidence',
     'Fetch subscription',
+    'Read capabilities',
   ]) {
     assert(source.includes(snippet), `P0Console missing ${snippet}`);
   }
@@ -74,6 +76,9 @@ test('dashboard uses a Vercel-style workbench with a Claude-style operator artif
     'A node is a VPS-side runner identity',
     'Runner queue and browser journal',
     'Quota evidence',
+    'Architecture status',
+    'Backend wheels',
+    'Capability matrix',
     'Node heartbeat and command queue',
     'xray-core',
   ]) {

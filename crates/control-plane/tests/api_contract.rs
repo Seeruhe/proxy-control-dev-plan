@@ -13,6 +13,49 @@ use sha2::Digest;
 use tower::ServiceExt;
 
 #[tokio::test]
+async fn system_capabilities_describe_current_architecture_and_deferred_wheels() {
+    let app = build_router(AppState::dev());
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/system/capabilities")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let capabilities: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(capabilities["product"], "RelayX");
+    assert_eq!(capabilities["p0_status"], "executable");
+    assert!(capabilities["core_path"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["name"] == "Rust runner -> xray-core"));
+    assert!(capabilities["backend_wheels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(
+            |item| item["name"] == "Node registration lease" && item["status"] == "p0-implemented"
+        ));
+    assert!(capabilities["deferred_wheels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["name"] == "A2A boundary" && item["status"] == "p1-deferred"));
+    assert!(capabilities["deferred_wheels"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|item| item["name"] == "BYOM integration" && item["status"] == "p1-deferred"));
+}
+
+#[tokio::test]
 async fn node_registration_token_is_consumed_after_first_successful_registration() {
     let app = build_router(AppState::dev());
 
