@@ -20,6 +20,7 @@ test('P0 console contains real browser operations for the control-plane flow', (
   const source = read('_components/P0Console.tsx');
   for (const snippet of [
     '/nodes/register',
+    'runner_result_public_key_hex',
     '/nodes',
     '/nodes/registration-tokens',
     '/nodes/${nodeId}/runner-result-key/rotate',

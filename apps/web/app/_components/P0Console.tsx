@@ -307,6 +307,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
           registration_token: registrationToken,
           node_id: nodeId,
           xray_version: xrayVersion,
+          runner_result_public_key_hex: runnerResultPublicKeyHex,
         }),
       }),
     );
