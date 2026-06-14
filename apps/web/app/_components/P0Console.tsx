@@ -47,6 +47,7 @@ type TopologyData = {
 };
 
 type TopologyNode = Node<TopologyData, 'proxyNode'>;
+type ControlState = 'empty' | 'ready' | 'deployed';
 
 const defaultNodeId = 'node-a';
 const defaultProfileId = 'profile-a';
@@ -105,7 +106,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
   const [expiresAt, setExpiresAt] = useState('2026-12-31T00:00:00Z');
   const [deployment, setDeployment] = useState<DeploymentState | null>(null);
   const [health, setHealth] = useState<string>('checking');
-  const [store, setStore] = useState<'empty' | 'ready' | 'deployed'>('empty');
+  const [store, setStore] = useState<ControlState>('empty');
   const [busy, setBusy] = useState<string | null>(null);
   const [events, setEvents] = useState<ConsoleEvent[]>([]);
   const [subscription, setSubscription] = useState('');
@@ -135,6 +136,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
 
   const deploymentStatus = deployment?.status || 'none';
   const artifactShort = deployment?.artifactSha ? deployment.artifactSha.slice(0, 12) : 'none';
+  const controlStateLabel = stateLabel(store);
 
   useEffect(() => {
     let cancelled = false;
@@ -471,7 +473,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
         </div>
         <div className="header-actions">
           <StatusPill label="API" value={health} tone={health === 'ok' ? 'ok' : 'warn'} />
-          <StatusPill label="Store" value={store} tone={store === 'deployed' ? 'ok' : store === 'ready' ? 'info' : 'warn'} />
+          <StatusPill label="Node" value={controlStateLabel} tone={store === 'deployed' ? 'ok' : store === 'ready' ? 'info' : 'warn'} />
           <StatusPill label="Deploy" value={deploymentStatus} tone={deploymentStatus === 'Succeeded' ? 'ok' : 'idle'} />
           <StatusProbe value={health} onClick={checkHealth} />
         </div>
@@ -503,7 +505,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               <section className="artifact-panel">
                 <PanelHeader eyebrow="Artifact" title={deployment?.deploymentId || 'No deployment compiled'} />
                 <div className="artifact-split">
-                  <JsonBlock title="Status" value={deployment ? { status: deployment.status, artifact: deployment.artifactId } : { status: 'empty' }} />
+                  <JsonBlock title="Status" value={deployment ? { status: deployment.status, artifact: deployment.artifactId } : { status: 'not compiled' }} />
                   <JsonBlock title="Latest usage" value={latestUsage || { status: 'no usage sample loaded' }} />
                   <JsonBlock title="Runner command" value={runnerCommandEnvelope || { status: 'not fetched' }} />
                   <JsonBlock title="Rollout action" value={rolloutAction || { status: 'no rollout action' }} />
@@ -517,10 +519,13 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
                 title="Run P0 flow"
                 action={
                   <button className="primary" disabled={Boolean(busy)} onClick={bootstrap} type="button">
-                    {busy || 'Run browser bootstrap'}
+                    {busy || 'Create dev deployment'}
                   </button>
                 }
               />
+              <p className="muted">
+                Creates the local dev path in order: health check, node registration, profile, credential, compile, runner command.
+              </p>
               <RunbookSteps
                 artifactShort={artifactShort}
                 clientId={clientId}
@@ -541,32 +546,36 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
 
       {view === 'nodes' ? (
         <section className="detail-workspace">
-          <FormPanel title="Runner node" eyebrow="Node registration" onSubmit={registerNode} busy={busy}>
+          <FormPanel title="Register runner node" eyebrow="Node inventory" onSubmit={registerNode} busy={busy} submitLabel="Register node">
             <Field label="Node ID" value={nodeId} onChange={setNodeId} />
             <Field label="Xray version" value={xrayVersion} onChange={setXrayVersion} />
           </FormPanel>
           <section className="data-panel span-2">
             <PanelHeader
               eyebrow="Runner evidence"
-              title="Heartbeat and command queue"
+              title="Node heartbeat and command queue"
               action={
                 <div className="button-row compact-row">
                   <button onClick={sendHeartbeat} type="button">Send heartbeat</button>
                   <button onClick={fetchHeartbeat} type="button">Read heartbeat</button>
-                  <button onClick={fetchRunnerCommand} type="button">Next command</button>
+                  <button onClick={fetchRunnerCommand} type="button">Fetch next command</button>
                 </div>
               }
             />
             <ResourceTable
               rows={[
-                ['Node ID', nodeId, store === 'empty' ? 'unregistered in browser state' : 'registered'],
+                ['Node ID', nodeId, store === 'empty' ? 'not registered in this browser session' : 'registered'],
                 ['Core', `xray ${xrayVersion}`, 'P0 runner target'],
-                ['Command source', `/runner/nodes/${nodeId}/commands/next`, runnerCommandEnvelope ? 'loaded' : 'not fetched'],
+                ['Command source', `/runner/nodes/${nodeId}/commands/next`, runnerCommandEnvelope ? 'loaded' : 'no pending command loaded'],
+                ['Registration token', 'dev-registration-token', 'one-time token in dev mode'],
               ]}
             />
+            <p className="muted offset-top">
+              A node is a VPS-side runner identity. Registering it creates the control-plane record; the runner process then sends heartbeat, polls the next command, applies the xray-core config, and reports evidence.
+            </p>
             <div className="artifact-split offset-top">
-              <JsonBlock title="Latest heartbeat" value={latestHeartbeat || { status: 'not loaded' }} />
-              <JsonBlock title="Next command envelope" value={runnerCommandEnvelope || { status: 'not loaded' }} />
+              <JsonBlock title="Latest heartbeat" value={latestHeartbeat || { status: 'not loaded yet' }} />
+              <JsonBlock title="Next command envelope" value={runnerCommandEnvelope || { status: 'no pending command loaded' }} />
             </div>
           </section>
           <section className="data-panel span-3">
@@ -663,12 +672,12 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               ]}
             />
             <div className="artifact-split">
-              <JsonBlock title="Status" value={deployment ? { status: deployment.status, artifact: deployment.artifactId } : { status: 'empty' }} />
-              <JsonBlock title="Health" value={deployment?.health || { status: 'not loaded' }} />
-              <JsonBlock title="Readiness" value={deployment?.readiness || { status: 'not loaded' }} />
-              <JsonBlock title="Rollback pointer" value={deployment?.rollbackPointer || { status: 'not loaded' }} />
-              <JsonBlock title="Rollout action" value={rolloutAction || { status: 'not loaded' }} />
-              <JsonBlock title="Runner result count" value={runnerResultCount || { status: 'not loaded' }} />
+              <JsonBlock title="Status" value={deployment ? { status: deployment.status, artifact: deployment.artifactId } : { status: 'not compiled' }} />
+              <JsonBlock title="Health" value={deployment?.health || { status: 'not loaded yet' }} />
+              <JsonBlock title="Readiness" value={deployment?.readiness || { status: 'not loaded yet' }} />
+              <JsonBlock title="Rollback pointer" value={deployment?.rollbackPointer || { status: 'not loaded yet' }} />
+              <JsonBlock title="Rollout action" value={rolloutAction || { status: 'not loaded yet' }} />
+              <JsonBlock title="Runner result count" value={runnerResultCount || { status: 'not loaded yet' }} />
             </div>
             {deployment?.artifactPreview ? <pre className="artifact-preview">{deployment.artifactPreview}</pre> : null}
           </section>
@@ -683,14 +692,14 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               title="Runner queue and browser journal"
               action={
                 <div className="button-row compact-row">
-                  <button onClick={fetchRunnerCommand} type="button">Next command</button>
+                  <button onClick={fetchRunnerCommand} type="button">Fetch next command</button>
                   <button onClick={fetchRunnerResultCount} type="button">Result count</button>
                 </div>
               }
             />
             <div className="artifact-split">
-              <JsonBlock title="Next runner command" value={runnerCommandEnvelope || { status: 'not loaded' }} />
-              <JsonBlock title="Runner result count" value={runnerResultCount || { status: 'not loaded' }} />
+              <JsonBlock title="Next runner command" value={runnerCommandEnvelope || { status: 'no pending command loaded' }} />
+              <JsonBlock title="Runner result count" value={runnerResultCount || { status: 'not loaded yet' }} />
             </div>
             <EventList events={events} />
           </section>
@@ -711,10 +720,10 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
               }
             />
             <div className="artifact-split">
-              <JsonBlock title="Snapshot" value={deployment?.snapshot || { status: 'not loaded' }} />
+              <JsonBlock title="Snapshot" value={deployment?.snapshot || { status: 'not loaded yet' }} />
               <JsonBlock title="Last event" value={events[0] || { status: 'no events yet' }} />
-              <JsonBlock title="Rollout action" value={rolloutAction || { status: 'not loaded' }} />
-              <JsonBlock title="Artifact preview" value={deployment?.artifactPreview || { status: 'not loaded' }} />
+              <JsonBlock title="Rollout action" value={rolloutAction || { status: 'not loaded yet' }} />
+              <JsonBlock title="Artifact preview" value={deployment?.artifactPreview || { status: 'not loaded yet' }} />
             </div>
           </section>
         </section>
@@ -770,7 +779,7 @@ function TopologyCanvas({
   health: string;
   nodeId: string;
   profileId: string;
-  storeState: string;
+  storeState: ControlState;
 }) {
   const baseNodes = useMemo<TopologyNode[]>(
     () => [
@@ -803,7 +812,7 @@ function TopologyCanvas({
         position: { x: 230, y: 310 },
         sourcePosition: Position.Right,
         targetPosition: Position.Left,
-        data: { kicker: 'State', title: 'Store', status: storeState, detail: 'memory now, Postgres later', tone: storeState === 'deployed' ? 'ok' : 'idle' },
+        data: { kicker: 'Control state', title: 'Memory store', status: stateLabel(storeState), detail: 'in-memory now, Postgres later', tone: storeState === 'deployed' ? 'ok' : 'idle' },
       },
       {
         id: 'compiler',
@@ -954,11 +963,11 @@ function RunbookSteps({
   health: string;
   nodeId: string;
   profileId: string;
-  store: string;
+  store: ControlState;
 }) {
   const steps = [
     ['01', 'Health', health === 'ok' ? 'API reachable' : 'Not checked'],
-    ['02', 'Register', store === 'empty' ? 'Node pending' : nodeId],
+    ['02', 'Register', store === 'empty' ? 'Node not registered' : nodeId],
     ['03', 'Profile', profileId],
     ['04', 'Credential', clientId],
     ['05', 'Compile', artifactShort],
@@ -975,6 +984,12 @@ function RunbookSteps({
       ))}
     </div>
   );
+}
+
+function stateLabel(state: ControlState) {
+  if (state === 'deployed') return 'Deployed';
+  if (state === 'ready') return 'Registered';
+  return 'Not registered';
 }
 
 function PanelHeader({ eyebrow, title, action }: { eyebrow: string; title: string; action?: ReactNode }) {
@@ -1025,19 +1040,21 @@ function FormPanel({
   children,
   onSubmit,
   busy,
+  submitLabel = 'Apply',
 }: {
   title: string;
   eyebrow: string;
   children: ReactNode;
   onSubmit: (event: FormEvent) => void;
   busy: string | null;
+  submitLabel?: string;
 }) {
   return (
     <form className="data-panel form-panel" onSubmit={onSubmit}>
       <PanelHeader eyebrow={eyebrow} title={title} />
       <div className="form-grid">{children}</div>
       <button className="primary" disabled={Boolean(busy)} type="submit">
-        {busy || 'Apply'}
+        {busy || submitLabel}
       </button>
     </form>
   );

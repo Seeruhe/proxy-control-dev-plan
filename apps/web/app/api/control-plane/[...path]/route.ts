@@ -15,25 +15,34 @@ async function proxy(request: NextRequest, context: RouteContext) {
   const upstream = new URL(`${controlPlaneBaseUrl()}/${path.join('/')}`);
   upstream.search = request.nextUrl.search;
 
-  const headers = new Headers();
+  const requestHeaders = new Headers();
   for (const name of ['content-type', 'idempotency-key', 'x-runner-token']) {
     const value = request.headers.get(name);
-    if (value) headers.set(name, value);
+    if (value) requestHeaders.set(name, value);
   }
 
   const response = await fetch(upstream, {
     method: request.method,
-    headers,
+    headers: requestHeaders,
     body: request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.text(),
     cache: 'no-store',
   });
 
+  const responseHeaders = new Headers();
+  const contentType = response.headers.get('content-type');
+  if (contentType) responseHeaders.set('content-type', contentType);
+
+  if (response.status === 204 || response.status === 304 || request.method === 'HEAD') {
+    return new NextResponse(null, {
+      status: response.status,
+      headers: responseHeaders,
+    });
+  }
+
   const body = await response.arrayBuffer();
   return new NextResponse(body, {
     status: response.status,
-    headers: {
-      'content-type': response.headers.get('content-type') || 'application/octet-stream',
-    },
+    headers: responseHeaders,
   });
 }
 

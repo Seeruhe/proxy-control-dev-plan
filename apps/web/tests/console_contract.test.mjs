@@ -37,7 +37,7 @@ test('P0 console contains real browser operations for the control-plane flow', (
     '/clients/${clientId}/quota',
     '/clients/${clientId}/expiry',
     '/usage/credentials/${clientId}/rollups/latest?bucket=hour',
-    'Run browser bootstrap',
+    'Create dev deployment',
     'Refresh evidence',
     'Fetch subscription',
   ]) {
@@ -59,10 +59,12 @@ test('dashboard uses a Vercel-style workbench with a Claude-style operator artif
     'DeploymentPlan',
     'operator-panel',
     'artifact-panel',
-    'Run browser bootstrap',
+    'Create dev deployment',
+    'Register runner node',
+    'A node is a VPS-side runner identity',
     'Runner queue and browser journal',
     'Quota evidence',
-    'Heartbeat and command queue',
+    'Node heartbeat and command queue',
     'xray-core',
   ]) {
     assert(source.includes(snippet), `P0Console missing workbench item ${snippet}`);
@@ -73,6 +75,8 @@ test('Next route handler proxies same-origin browser calls to the Rust control-p
   const source = read('api/control-plane/[...path]/route.ts');
   assert(source.includes('WEB_API_BASE_URL'));
   assert(source.includes('DEFAULT_CONTROL_PLANE'));
+  assert(source.includes('response.status === 204'));
+  assert(source.includes('NextResponse(null'));
   assert(source.includes('idempotency-key'));
   assert(source.includes('x-runner-token'));
   assert(source.includes('export async function GET'));
