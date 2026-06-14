@@ -23,6 +23,8 @@ test('P0 console contains real browser operations for the control-plane flow', (
     '/nodes',
     '/nodes/registration-tokens',
     '/profiles/vless-reality',
+    '/profiles/shadowsocks',
+    '/profiles/trojan',
     '/clients',
     '/deployments/compile',
     '/deployments/${deployment.deploymentId}/health',
@@ -44,6 +46,9 @@ test('P0 console contains real browser operations for the control-plane flow', (
     'Refresh evidence',
     'Fetch subscription',
     'Read capabilities',
+    'Credential kind',
+    'Shadowsocks password',
+    'Trojan password',
   ]) {
     assert(source.includes(snippet), `P0Console missing ${snippet}`);
   }
@@ -79,6 +84,8 @@ test('dashboard uses a Vercel-style workbench with a Claude-style operator artif
     'Architecture status',
     'Backend wheels',
     'Capability matrix',
+    'Xray adapter coverage',
+    'wired to backend endpoint',
     'Node heartbeat and command queue',
     'xray-core',
   ]) {

@@ -70,6 +70,7 @@ type TopologyData = {
 
 type TopologyNode = Node<TopologyData, 'proxyNode'>;
 type ControlState = 'unregistered' | 'registered' | 'deployed';
+type ProxyProtocol = 'vless' | 'shadowsocks' | 'trojan';
 
 const defaultNodeId = 'node-a';
 const defaultProfileId = 'profile-a';
@@ -121,10 +122,14 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
   const [xrayVersion, setXrayVersion] = useState('26.3.27');
   const [registrationToken, setRegistrationToken] = useState('dev-registration-token');
   const [profileId, setProfileId] = useState(defaultProfileId);
+  const [profileProtocol, setProfileProtocol] = useState<ProxyProtocol>('vless');
   const [serverName, setServerName] = useState('example.com');
+  const [inboundPort, setInboundPort] = useState('443');
   const [clientId, setClientId] = useState(defaultClientId);
   const [displayName, setDisplayName] = useState('Alice');
   const [uuid, setUuid] = useState(defaultUuid);
+  const [credentialPassword, setCredentialPassword] = useState('MDEyMzQ1Njc4OWFiY2RlZg==');
+  const [shadowsocksMethod, setShadowsocksMethod] = useState('2022-blake3-aes-128-gcm');
   const [quotaBytes, setQuotaBytes] = useState('1000000000');
   const [expiresAt, setExpiresAt] = useState('2026-12-31T00:00:00Z');
   const [deployment, setDeployment] = useState<DeploymentState | null>(null);
@@ -294,16 +299,31 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
 
   async function createProfile(event?: FormEvent) {
     event?.preventDefault();
-    return run('Create VLESS REALITY profile', () =>
-      api<JsonValue>('/profiles/vless-reality', {
+    const profileRequest =
+      profileProtocol === 'shadowsocks'
+        ? { path: '/profiles/shadowsocks', body: { profile_id: profileId, port: Number(inboundPort || 8388) } }
+        : profileProtocol === 'trojan'
+          ? {
+              path: '/profiles/trojan',
+              body: { profile_id: profileId, server_name: serverName, port: Number(inboundPort || 443) },
+            }
+          : { path: '/profiles/vless-reality', body: { profile_id: profileId, server_name: serverName } };
+    return run(`Create ${protocolLabel(profileProtocol)} profile`, () =>
+      api<JsonValue>(profileRequest.path, {
         method: 'POST',
-        body: JSON.stringify({ profile_id: profileId, server_name: serverName }),
+        body: JSON.stringify(profileRequest.body),
       }),
     );
   }
 
   async function createClient(event?: FormEvent) {
     event?.preventDefault();
+    const credentialMaterial =
+      profileProtocol === 'shadowsocks'
+        ? { kind: 'shadowsocks', method: shadowsocksMethod, password: credentialPassword }
+        : profileProtocol === 'trojan'
+          ? { kind: 'trojan', password: credentialPassword }
+          : { kind: 'vless', uuid };
     return run('Create client credential', () =>
       api<JsonValue>('/clients', {
         method: 'POST',
@@ -311,7 +331,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
           client_id: clientId,
           profile_id: profileId,
           display_name: displayName,
-          uuid,
+          ...credentialMaterial,
           quota_bytes: Number(quotaBytes),
           expires_at: expiresAt,
         }),
@@ -698,15 +718,29 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
 
       {view === 'profiles' ? (
         <section className="detail-workspace">
-          <FormPanel title="VLESS REALITY profile" eyebrow="Profile IR" onSubmit={createProfile} busy={busy}>
+          <FormPanel title={`${protocolLabel(profileProtocol)} profile`} eyebrow="Profile IR" onSubmit={createProfile} busy={busy}>
+            <SelectField
+              label="Protocol"
+              value={profileProtocol}
+              onChange={(value) => setProfileProtocol(value as ProxyProtocol)}
+              options={[
+                ['vless', 'VLESS REALITY'],
+                ['shadowsocks', 'Shadowsocks'],
+                ['trojan', 'Trojan TLS'],
+              ]}
+            />
             <Field label="Profile ID" value={profileId} onChange={setProfileId} />
-            <Field label="Server name / SNI" value={serverName} onChange={setServerName} />
+            {profileProtocol !== 'shadowsocks' ? <Field label="Server name / SNI" value={serverName} onChange={setServerName} /> : null}
+            {profileProtocol !== 'vless' ? <Field label="Inbound port" value={inboundPort} onChange={setInboundPort} /> : null}
           </FormPanel>
           <section className="data-panel span-2">
-            <PanelHeader eyebrow="Compiler target" title="Xray adapter first" />
+            <PanelHeader eyebrow="Compiler target" title="Xray adapter coverage" />
             <ResourceTable
               rows={[
-                ['Protocol', 'VLESS + REALITY', 'P0 supported'],
+                ['Selected protocol', protocolLabel(profileProtocol), 'wired to backend endpoint'],
+                ['VLESS REALITY', '/profiles/vless-reality', 'browser operation'],
+                ['Shadowsocks', '/profiles/shadowsocks', 'browser operation'],
+                ['Trojan', '/profiles/trojan', 'browser operation'],
                 ['Core', 'xray-core', 'verified locally'],
                 ['Later adapter', 'sing-box', 'kept behind compiler boundary'],
               ]}
@@ -717,11 +751,23 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
 
       {view === 'clients' ? (
         <section className="detail-workspace">
-          <FormPanel title="Client credential" eyebrow="VLESS UUID" onSubmit={createClient} busy={busy}>
+          <FormPanel title="Client credential" eyebrow={protocolLabel(profileProtocol)} onSubmit={createClient} busy={busy}>
+            <SelectField
+              label="Credential kind"
+              value={profileProtocol}
+              onChange={(value) => setProfileProtocol(value as ProxyProtocol)}
+              options={[
+                ['vless', 'VLESS UUID'],
+                ['shadowsocks', 'Shadowsocks password'],
+                ['trojan', 'Trojan password'],
+              ]}
+            />
             <Field label="Client ID" value={clientId} onChange={setClientId} />
             <Field label="Profile ID" value={profileId} onChange={setProfileId} />
             <Field label="Display name" value={displayName} onChange={setDisplayName} />
-            <Field label="UUID" value={uuid} onChange={setUuid} />
+            {profileProtocol === 'vless' ? <Field label="UUID" value={uuid} onChange={setUuid} /> : null}
+            {profileProtocol === 'shadowsocks' ? <Field label="Method" value={shadowsocksMethod} onChange={setShadowsocksMethod} wide /> : null}
+            {profileProtocol !== 'vless' ? <Field label="Password" value={credentialPassword} onChange={setCredentialPassword} wide /> : null}
             <Field label="Quota bytes" value={quotaBytes} onChange={setQuotaBytes} />
             <Field label="Expires at" value={expiresAt} onChange={setExpiresAt} />
           </FormPanel>
@@ -740,6 +786,7 @@ export function P0Console({ initialView = 'dashboard' }: { initialView?: View })
             <ResourceTable
               rows={[
                 ['Client ID', clientId, 'credential'],
+                ['Credential kind', protocolLabel(profileProtocol), 'wired to /clients kind'],
                 ['Quota bytes', quotaBytes, quotaDecision ? 'decision loaded' : 'not loaded'],
                 ['Expires at', expiresAt, expiryDecision ? 'decision loaded' : 'not loaded'],
               ]}
@@ -1110,6 +1157,12 @@ function stateLabel(state: ControlState) {
   return 'Not registered';
 }
 
+function protocolLabel(protocol: ProxyProtocol) {
+  if (protocol === 'shadowsocks') return 'Shadowsocks';
+  if (protocol === 'trojan') return 'Trojan TLS';
+  return 'VLESS REALITY';
+}
+
 function tokenStatus(tokens: RegistrationTokenItem[], tokenValue: string) {
   const token = tokens.find((item) => item.token === tokenValue);
   if (!token) return 'not loaded';
@@ -1200,6 +1253,31 @@ function Field({
     <label className={`field ${wide ? 'wide-field' : ''}`}>
       <span>{label}</span>
       <input value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function SelectField({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<[string, string]>;
+}) {
+  return (
+    <label className="field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map(([optionValue, label]) => (
+          <option key={optionValue} value={optionValue}>
+            {label}
+          </option>
+        ))}
+      </select>
     </label>
   );
 }
